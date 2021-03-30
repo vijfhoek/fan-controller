@@ -1,0 +1,30 @@
+[package]
+authors = ["Vijfhoek <me@vijf.life>"]
+edition = "2018"
+readme = "README.md"
+name = "boffan"
+version = "0.1.0"
+
+[dependencies]
+alloc-cortex-m = "0.4.1"
+cortex-m = "0.7"
+cortex-m-rt = "0.6"
+cortex-m-rtic = "0.5.5"
+cortex-m-semihosting = "0.3.7"
+embedded-hal = "0.2.4"
+panic-semihosting = "0.5.6"
+usb-device = "0.2.8"
+usbd-hid = "0.5.0"
+stm32f0xx-hal = { version = "0.17.1", features = ["rt", "stm32f042", "stm32-usbd"] }
+
+# this lets you use `cargo fix`!
+[[bin]]
+name = "boffan"
+test = false
+bench = false
+
+[profile.release]
+codegen-units = 1 # better optimizations
+debug = true # symbols are nice and they don't increase the size on Flash
+lto = true # better optimizations
+opt-level = 'z'
