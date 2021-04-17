@@ -54,7 +54,7 @@ impl Pwm {
         tim1.arr.write(|w| w.arr().bits(TIMER_PERIOD));
 
         // Enable the counter
-        tim1.cr1.modify(|_, w| w.cen().set_bit());
+        tim1.cr1.write(|w| w.cen().set_bit());
     }
 
     fn setup_tim2(tim2: &pac::TIM2, rcc: &mut Rcc) {
@@ -109,7 +109,14 @@ impl Pwm {
         });
 
         // Capture/Compare 1 and 2 Output Enable
-        tim3.ccer.modify(|_, w| w.cc1e().set_bit().cc2e().set_bit());
+        #[rustfmt::skip]
+        tim3.ccer.write(|w| {
+            w
+                // Capture/Compare 1 Output Enable (pwm2)
+                .cc1e().set_bit()
+                // Capture/Compare 2 Output Enable (pwm4)
+                .cc2e().set_bit()
+        });
 
         // Enable update generation
         tim3.egr.write(|w| w.ug().set_bit());
@@ -120,7 +127,7 @@ impl Pwm {
         tim3.arr.write(|w| w.arr().bits(TIMER_PERIOD));
 
         // Enable the counter
-        tim3.cr1.modify(|_, w| w.cen().set_bit());
+        tim3.cr1.write(|w| w.cen().set_bit());
     }
 
     pub fn set_duty(&self, channel: PwmChannel, percent: u16) {
