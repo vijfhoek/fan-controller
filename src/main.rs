@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod peripherals;
 mod pwm;
 
 use cortex_m_semihosting::hprintln;
@@ -14,10 +15,7 @@ use stm32f0xx_hal::{
         Analog, Floating, Input, PullUp,
     },
     pac,
-    prelude::*,
 };
-
-use cortex_m::interrupt;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true)]
 const APP: () = {
@@ -45,80 +43,14 @@ const APP: () = {
     fn init(context: init::Context) -> init::LateResources {
         let mut device: pac::Peripherals = context.device;
 
-        let mut rcc = device
-            .RCC
-            .configure()
-            .hsi48()
-            .enable_crs(device.CRS)
-            .sysclk(48.mhz())
-            .pclk(24.mhz())
-            .freeze(&mut device.FLASH);
+        let mut rcc = peripherals::configure_rcc(device.RCC, device.CRS, &mut device.FLASH);
 
-        let gpioa = device.GPIOA.split(&mut rcc);
-        let (key_a, key_b, rot_a, rot_b, _, tach1) = interrupt::free(|cs| {
-            (
-                gpioa.pa3.into_pull_up_input(cs),                            // key_a
-                gpioa.pa4.into_pull_up_input(cs),                            // key_b
-                gpioa.pa6.into_pull_up_input(cs),                            // rot_a
-                gpioa.pa5.into_pull_up_input(cs),                            // rot_b
-                gpioa.pa8.into_alternate_af2(cs).internal_pull_up(cs, true), // pwm3, TIM1_CH1
-                gpioa.pa15.into_floating_input(cs),                          // tach1
-            )
-        });
+        let (key_a, key_b, rot_a, rot_b, tach1) =
+            peripherals::configure_gpioa(device.GPIOA, &mut rcc);
 
-        let gpiob = device.GPIOB.split(&mut rcc);
-        let (vsense, _, _, _, tach2, tach3, tach4) = interrupt::free(|cs| {
-            (
-                gpiob.pb0.into_analog(cs),                                   // vsense
-                gpiob.pb3.into_alternate_af2(cs).internal_pull_up(cs, true), // pwm1, TIM2_CH2
-                gpiob.pb5.into_alternate_af1(cs).internal_pull_up(cs, true), // pwm2, TIM3_CH2
-                gpiob.pb4.into_alternate_af1(cs).internal_pull_up(cs, true), // pwm4, TIM3_CH1
-                gpiob.pb7.into_floating_input(cs),                           // tach2
-                gpiob.pb8.into_floating_input(cs),                           // tach3
-                gpiob.pb6.into_floating_input(cs),                           // tach4
-            )
-        });
+        let (vsense, tach2, tach3, tach4) = peripherals::configure_gpiob(device.GPIOB, &mut rcc);
 
-        // Enable external interrupts
-        let syscfg = device.SYSCFG;
-        syscfg.exticr1.write(|w| w.exti3().pa3()); // key_a
-
-        #[rustfmt::skip]
-        syscfg.exticr2.write(|w| {
-            w
-                .exti4().pa4() // key_b
-                .exti6().pb6() // tach4
-                .exti7().pb7() // tach2
-        });
-
-        syscfg.exticr3.write(|w| w.exti8().pb8()); // tach3
-        syscfg.exticr4.write(|w| w.exti15().pa15()); // tach1
-
-        // Set interrupt mask for all the above
-        let exti = device.EXTI;
-
-        #[rustfmt::skip]
-        exti.imr.write(|w| {
-            w
-                .mr3().set_bit() // key_a
-                .mr4().set_bit() // key_b
-                .mr6().set_bit() // tach4
-                .mr7().set_bit() // tach2
-                .mr8().set_bit() // tach3
-                .mr15().set_bit() // tach1
-        });
-
-        // Set interrupt falling edge trigger
-        #[rustfmt::skip]
-        exti.ftsr.write(|w| {
-            w
-                .tr3().set_bit() // key_a
-                .tr4().set_bit() // key_b
-                .tr6().set_bit() // tach4
-                .tr7().set_bit() // tach2
-                .tr8().set_bit() // tach3
-                .tr15().set_bit() // tach1
-        });
+        let exti = peripherals::configure_exti(device.SYSCFG, device.EXTI);
 
         let pwm = pwm::Pwm::new(device.TIM1, device.TIM2, device.TIM3, &mut rcc);
         pwm.set_duty(pwm::PwmChannel::Pwm1, 20);
