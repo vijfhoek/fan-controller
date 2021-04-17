@@ -7,6 +7,8 @@ pub enum PwmChannel {
     Pwm4,
 }
 
+const TIMER_PERIOD: u16 = 1900;
+
 pub struct Pwm {
     tim1: pac::TIM1,
     tim2: pac::TIM2,
@@ -48,10 +50,8 @@ impl Pwm {
 
         // Configure pre-scaler for 48 MHz / 1 = 48 MHz
         tim1.psc.write(|w| w.psc().bits(0));
-        // Configure auto-reload register for 1920 / 1 MHz = 25 kHz
-        tim1.arr.write(|w| w.arr().bits(1920 - 1));
-        // Set half duty cycle (half of ARR)
-        tim1.ccr1.write(|w| w.ccr().bits(1920 / 2));
+        // Configure auto-reload register for about 25 kHz
+        tim1.arr.write(|w| w.arr().bits(TIMER_PERIOD));
 
         // Enable the counter
         tim1.cr1.modify(|_, w| w.cen().set_bit());
@@ -76,17 +76,13 @@ impl Pwm {
         // Capture/Compare 2 Output Enable
         tim2.ccer.write(|w| w.cc2e().set_bit());
 
-        // TODO No Main Output Enable?
-
         // Enable update generation
         tim2.egr.write(|w| w.ug().set_bit());
 
         // Configure pre-scaler for 48 MHz / 1 = 48 MHz
         tim2.psc.write(|w| w.psc().bits(0));
-        // Configure auto-reload register for 1920 / 1 MHz = 25 kHz
-        tim2.arr.write(|w| w.arr().bits(1920 - 1));
-        // Set half duty cycle (half of ARR)
-        tim2.ccr2.write(|w| w.ccr().bits(1920 / 2));
+        // Configure auto-reload register for about 25 kHz
+        tim2.arr.write(|w| w.arr().bits(TIMER_PERIOD.into()));
 
         // Enable the counter
         tim2.cr1.write(|w| w.cen().set_bit());
@@ -112,28 +108,25 @@ impl Pwm {
                 .cc2s().output()
         });
 
-        // Capture/Compare 2 Output Enable
-        tim3.ccer.modify(|_, w| w.cc2e().set_bit());
-
-        // TODO No Main Output Enable?
+        // Capture/Compare 1 and 2 Output Enable
+        tim3.ccer.modify(|_, w| w.cc1e().set_bit().cc2e().set_bit());
 
         // Enable update generation
         tim3.egr.write(|w| w.ug().set_bit());
 
         // Configure pre-scaler for 48 MHz / 1 = 48 MHz
         tim3.psc.write(|w| w.psc().bits(0));
-        // Configure auto-reload register for 1920 / 1 MHz = 25 kHz
-        tim3.arr.write(|w| w.arr().bits(1920 - 1));
-        // Set half duty cycle (half of ARR)
-        tim3.ccr2.write(|w| w.ccr().bits(1920 / 2));
+        // Configure auto-reload register for about 25 kHz
+        tim3.arr.write(|w| w.arr().bits(TIMER_PERIOD));
 
         // Enable the counter
         tim3.cr1.modify(|_, w| w.cen().set_bit());
     }
 
-    pub fn set_duty(&self, channel: PwmChannel, value: u16) {
+    pub fn set_duty(&self, channel: PwmChannel, percent: u16) {
+        let value = percent * (TIMER_PERIOD / 100);
         match channel {
-            PwmChannel::Pwm1 => self.tim2.ccr2.write(|w| w.ccr().bits(value as u32)),
+            PwmChannel::Pwm1 => self.tim2.ccr2.write(|w| w.ccr().bits(value.into())),
             PwmChannel::Pwm2 => self.tim3.ccr1.write(|w| w.ccr().bits(value)),
             PwmChannel::Pwm3 => self.tim1.ccr1.write(|w| w.ccr().bits(value)),
             PwmChannel::Pwm4 => self.tim3.ccr2.write(|w| w.ccr().bits(value)),

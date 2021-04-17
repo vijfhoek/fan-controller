@@ -57,25 +57,25 @@ const APP: () = {
         let gpioa = device.GPIOA.split(&mut rcc);
         let (key_a, key_b, rot_a, rot_b, _, tach1) = interrupt::free(|cs| {
             (
-                gpioa.pa3.into_pull_up_input(cs), // key_a
-                gpioa.pa4.into_pull_up_input(cs), // key_b
-                gpioa.pa6.into_pull_up_input(cs), // rot_a
-                gpioa.pa5.into_pull_up_input(cs), // rot_b
-                gpioa.pa8.into_alternate_af2(cs).internal_pull_up(cs, false), // pwm3, TIM1_CH1
-                gpioa.pa15.into_floating_input(cs), // tach1
+                gpioa.pa3.into_pull_up_input(cs),                            // key_a
+                gpioa.pa4.into_pull_up_input(cs),                            // key_b
+                gpioa.pa6.into_pull_up_input(cs),                            // rot_a
+                gpioa.pa5.into_pull_up_input(cs),                            // rot_b
+                gpioa.pa8.into_alternate_af2(cs).internal_pull_up(cs, true), // pwm3, TIM1_CH1
+                gpioa.pa15.into_floating_input(cs),                          // tach1
             )
         });
 
         let gpiob = device.GPIOB.split(&mut rcc);
         let (vsense, _, _, _, tach2, tach3, tach4) = interrupt::free(|cs| {
             (
-                gpiob.pb0.into_analog(cs),                                    // vsense
-                gpiob.pb3.into_alternate_af2(cs).internal_pull_up(cs, false), // pwm1, TIM2_CH2
-                gpiob.pb5.into_alternate_af1(cs).internal_pull_up(cs, false), // pwm2, TIM3_CH2
-                gpiob.pb4.into_alternate_af1(cs).internal_pull_up(cs, false), // pwm4, TIM3_CH1
-                gpiob.pb7.into_floating_input(cs),                            // tach2
-                gpiob.pb8.into_floating_input(cs),                            // tach3
-                gpiob.pb6.into_floating_input(cs),                            // tach4
+                gpiob.pb0.into_analog(cs),                                   // vsense
+                gpiob.pb3.into_alternate_af2(cs).internal_pull_up(cs, true), // pwm1, TIM2_CH2
+                gpiob.pb5.into_alternate_af1(cs).internal_pull_up(cs, true), // pwm2, TIM3_CH2
+                gpiob.pb4.into_alternate_af1(cs).internal_pull_up(cs, true), // pwm4, TIM3_CH1
+                gpiob.pb7.into_floating_input(cs),                           // tach2
+                gpiob.pb8.into_floating_input(cs),                           // tach3
+                gpiob.pb6.into_floating_input(cs),                           // tach4
             )
         });
 
@@ -121,6 +121,10 @@ const APP: () = {
         });
 
         let pwm = pwm::Pwm::new(device.TIM1, device.TIM2, device.TIM3, &mut rcc);
+        pwm.set_duty(pwm::PwmChannel::Pwm1, 20);
+        pwm.set_duty(pwm::PwmChannel::Pwm2, 40);
+        pwm.set_duty(pwm::PwmChannel::Pwm3, 60);
+        pwm.set_duty(pwm::PwmChannel::Pwm4, 80);
 
         init::LateResources {
             exti,
