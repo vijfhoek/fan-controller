@@ -1,24 +1,23 @@
 #![no_std]
 #![no_main]
 
+mod pwm;
+
 use cortex_m_semihosting::hprintln;
 use panic_semihosting as _;
 use rtic::app;
 
 use stm32f0xx_hal::{
     gpio::{
-        gpioa::{PA15, PA3, PA4, PA5, PA6, PA8},
+        gpioa::{PA15, PA3, PA4, PA5, PA6},
         gpiob::{PB0, PB6, PB7, PB8},
-        Alternate, Analog, Input, PullUp, AF2,
+        Analog, Floating, Input, PullUp,
     },
     pac,
     prelude::*,
-    time::{Hertz, KiloHertz},
-    timers::Timer,
-    usb,
 };
 
-use cortex_m::interrupt::free as disable_interrupts;
+use cortex_m::interrupt;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true)]
 const APP: () = {
@@ -31,33 +30,24 @@ const APP: () = {
         rot_a: PA6<Input<PullUp>>,
         rot_b: PA5<Input<PullUp>>,
 
-        pwm3: PA8<Alternate<AF2>>,
+        tach1: PA15<Input<Floating>>,
+        tach2: PB7<Input<Floating>>,
+        tach3: PB8<Input<Floating>>,
+        tach4: PB6<Input<Floating>>,
 
-        tach1: PA15<Input<PullUp>>,
-        tach2: PB7<Input<PullUp>>,
-        tach3: PB8<Input<PullUp>>,
-        tach4: PB6<Input<PullUp>>,
+        pwm: pwm::Pwm,
 
-        #[init([0;4])]
+        #[init([0; 4])]
         tachs: [u32; 4],
     }
 
     #[init]
     fn init(context: init::Context) -> init::LateResources {
-        // RTT handler
-        // rtt_init_print!();
-
-        // Alias peripherals
         let mut device: pac::Peripherals = context.device;
 
-        // This enables clock for SYSCFG and remaps USB pins to PA9 and PA10.
-        usb::remap_pins(&mut device.RCC, &mut device.SYSCFG);
-
-        hprintln!("Initializing peripherals").ok();
         let mut rcc = device
             .RCC
             .configure()
-            .usbsrc(stm32f0xx_hal::rcc::USBClockSource::HSI48)
             .hsi48()
             .enable_crs(device.CRS)
             .sysclk(48.mhz())
@@ -65,83 +55,88 @@ const APP: () = {
             .freeze(&mut device.FLASH);
 
         let gpioa = device.GPIOA.split(&mut rcc);
-        let (key_a, key_b, rot_a, rot_b, pwm3, tach1) = disable_interrupts(|cs| {
+        let (key_a, key_b, rot_a, rot_b, _, tach1) = interrupt::free(|cs| {
             (
-                gpioa.pa3.into_pull_up_input(cs),                            // key_a
-                gpioa.pa4.into_pull_up_input(cs),                            // key_b
-                gpioa.pa6.into_pull_up_input(cs),                            // rot_a
-                gpioa.pa5.into_pull_up_input(cs),                            // rot_b
-                gpioa.pa8.into_open_drain_output(cs).into_alternate_af2(cs), // pwm3
-                gpioa.pa15.into_pull_up_input(cs),                           // tach1
+                gpioa.pa3.into_pull_up_input(cs), // key_a
+                gpioa.pa4.into_pull_up_input(cs), // key_b
+                gpioa.pa6.into_pull_up_input(cs), // rot_a
+                gpioa.pa5.into_pull_up_input(cs), // rot_b
+                gpioa.pa8.into_alternate_af2(cs).internal_pull_up(cs, false), // pwm3, TIM1_CH1
+                gpioa.pa15.into_floating_input(cs), // tach1
             )
         });
 
         let gpiob = device.GPIOB.split(&mut rcc);
-        let (vsense, tach2, tach3, tach4) = disable_interrupts(|cs| {
+        let (vsense, _, _, _, tach2, tach3, tach4) = interrupt::free(|cs| {
             (
-                gpiob.pb0.into_analog(cs),        // vsense
-                gpiob.pb7.into_pull_up_input(cs), // tach2
-                gpiob.pb8.into_pull_up_input(cs), // tach3
-                gpiob.pb6.into_pull_up_input(cs), // tach4
+                gpiob.pb0.into_analog(cs),                                    // vsense
+                gpiob.pb3.into_alternate_af2(cs).internal_pull_up(cs, false), // pwm1, TIM2_CH2
+                gpiob.pb5.into_alternate_af1(cs).internal_pull_up(cs, false), // pwm2, TIM3_CH2
+                gpiob.pb4.into_alternate_af1(cs).internal_pull_up(cs, false), // pwm4, TIM3_CH1
+                gpiob.pb7.into_floating_input(cs),                            // tach2
+                gpiob.pb8.into_floating_input(cs),                            // tach3
+                gpiob.pb6.into_floating_input(cs),                            // tach4
             )
         });
 
         // Enable external interrupts
         let syscfg = device.SYSCFG;
         syscfg.exticr1.write(|w| w.exti3().pa3()); // key_a
+
+        #[rustfmt::skip]
         syscfg.exticr2.write(|w| {
-            w.exti4().pa4(); // key_b
-            w.exti6().pb6(); // tach4
-            w.exti7().pb7() // tach2
+            w
+                .exti4().pa4() // key_b
+                .exti6().pb6() // tach4
+                .exti7().pb7() // tach2
         });
+
         syscfg.exticr3.write(|w| w.exti8().pb8()); // tach3
         syscfg.exticr4.write(|w| w.exti15().pa15()); // tach1
 
         // Set interrupt mask for all the above
         let exti = device.EXTI;
+
+        #[rustfmt::skip]
         exti.imr.write(|w| {
-            w.mr3().set_bit(); // key_a
-            w.mr4().set_bit(); // key_b
-            w.mr6().set_bit(); // tach4
-            w.mr7().set_bit(); // tach2
-            w.mr8().set_bit(); // tach3
-            w.mr15().set_bit() // tach1
+            w
+                .mr3().set_bit() // key_a
+                .mr4().set_bit() // key_b
+                .mr6().set_bit() // tach4
+                .mr7().set_bit() // tach2
+                .mr8().set_bit() // tach3
+                .mr15().set_bit() // tach1
         });
 
         // Set interrupt falling edge trigger
+        #[rustfmt::skip]
         exti.ftsr.write(|w| {
-            w.tr3().set_bit(); // key_a
-            w.tr4().set_bit(); // key_b
-            w.tr6().set_bit(); // tach4
-            w.tr7().set_bit(); // tach2
-            w.tr8().set_bit(); // tach3
-            w.tr15().set_bit() // tach1
+            w
+                .tr3().set_bit() // key_a
+                .tr4().set_bit() // key_b
+                .tr6().set_bit() // tach4
+                .tr7().set_bit() // tach2
+                .tr8().set_bit() // tach3
+                .tr15().set_bit() // tach1
         });
 
-        // Setup PWM timers
-        let tim1 = device.TIM1;
-        tim1.psc.write(|w| w.psc().bits(0));
-        tim1.arr.write(|w| w.arr().bits(1919));
-        tim1.ccr1.write(|w| w.ccr().bits(800));
-        tim1.ccmr1_output()
-            .write(|w| w.oc1pe().set_bit().oc1m().pwm_mode1());
-        tim1.ccer.write(|w| w.cc1e().set_bit());
-        tim1.bdtr.write(|w| w.moe().set_bit());
-        tim1.egr.write(|w| w.ug().set_bit());
+        let pwm = pwm::Pwm::new(device.TIM1, device.TIM2, device.TIM3, &mut rcc);
 
-        hprintln!("Done").ok();
         init::LateResources {
             exti,
             vsense,
+
             key_a,
             key_b,
             rot_a,
             rot_b,
-            pwm3,
+
             tach1,
             tach2,
             tach3,
             tach4,
+
+            pwm,
         }
     }
 

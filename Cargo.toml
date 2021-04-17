@@ -15,7 +15,7 @@ embedded-hal = "0.2.4"
 panic-semihosting = "0.5.6"
 usb-device = "0.2.8"
 usbd-hid = "0.5.0"
-stm32f0xx-hal = { version = "0.17.1", features = ["rt", "stm32f042", "stm32-usbd"] }
+stm32f0xx-hal = { git = "https://github.com/vijfhoek/stm32f0xx-hal.git", features = ["rt", "stm32f042", "stm32-usbd"] }
 
 # this lets you use `cargo fix`!
 [[bin]]
